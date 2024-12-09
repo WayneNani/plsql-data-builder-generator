@@ -1,7 +1,8 @@
 create or replace package body builder_pattern_templates as
 
   function builder_object_header_source(
-    i_table_name varchar2
+    i_owner varchar2
+    ,i_table_name varchar2
     ,i_attributes clob
     ,i_member_functions clob
   ) return clob as
@@ -10,6 +11,7 @@ create or replace package body builder_pattern_templates as
 
   begin
 
+    l_source := replace(l_source, '#OWNER#', i_owner);
     l_source := replace(l_source, '#TABLE_NAME#', i_table_name);
     l_source := replace(l_source, '#ATTRIBUTES#', i_attributes);
     l_source := replace(l_source, '#MEMBER_FUNCTIONS#', i_member_functions);
@@ -20,7 +22,8 @@ create or replace package body builder_pattern_templates as
 
 
   function builder_object_body_source(
-    i_table_name varchar2
+    i_owner varchar2
+    ,i_table_name varchar2
     ,i_column_list clob
     ,i_column_list_with_self clob
     ,i_member_functions clob
@@ -30,6 +33,7 @@ create or replace package body builder_pattern_templates as
 
   begin
 
+    l_source := replace(l_source, '#OWNER#', i_owner);
     l_source := replace(l_source, '#TABLE_NAME#', i_table_name);
     l_source := replace(l_source, '#MEMBER_FUNCTIONS#', i_member_functions);
     l_source := replace(l_source, '#COLUMN_LIST#', i_column_list);

@@ -189,14 +189,16 @@ create or replace package body builder_pattern_generator as
                   || chr(13)
                   || chr(13)
                   || builder_pattern_templates.BUILDER_OBJECT_HEADER_SOURCE(
-                    I_TABLE_NAME => i_table_name
+                    i_owner => i_table_owner
+                    ,I_TABLE_NAME => i_table_name
                     ,I_ATTRIBUTES => l_attributes
                     ,I_MEMBER_FUNCTIONS => l_member_functions_header
                   )
                   || chr(13)
                   || chr(13)
                   || builder_pattern_templates.BUILDER_OBJECT_body_SOURCE(
-                    I_TABLE_NAME => i_table_name
+                    i_owner => i_table_owner
+                    ,I_TABLE_NAME => i_table_name
                     ,I_COLUMN_LIST => l_column_list
                     ,i_column_list_with_self => l_column_list_with_self
                     ,I_MEMBER_FUNCTIONS => l_member_functions_body
