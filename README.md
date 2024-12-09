@@ -49,3 +49,7 @@ constructor function ...
   return;
 end;
 ```
+
+## Where to go from here?
+
+A great way to leverage this API is to use it to create more complex data setups and make them reproducible with wrapper packages. These cannot be automated as they are highly specific for your domain.
