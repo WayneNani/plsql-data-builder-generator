@@ -111,6 +111,40 @@ create or replace package body builder_pattern_generator as
   end get_member_functions_header;
 
 
+  function get_column_list(
+    i_table_columns t_table_columns_type
+  ) return clob as
+
+    l_column_list clob;
+
+  begin
+
+    select listagg(column_name, ', ') within group (order by column_id)
+    into l_column_list
+    from table(i_table_columns);
+
+    return l_column_list;
+
+  end get_column_list;
+
+
+  function get_column_list_with_self(
+    i_table_columns t_table_columns_type
+  ) return clob as
+
+    l_column_list clob;
+
+  begin
+
+    select listagg('self.' || column_name, ', ') within group (order by column_id)
+    into l_column_list
+    from table(i_table_columns);
+
+    return l_column_list;
+
+  end get_column_list_with_self;
+
+
   function generate_builder_object_sql(
     i_table_owner varchar2
     ,i_table_name varchar2
@@ -121,6 +155,8 @@ create or replace package body builder_pattern_generator as
     l_member_functions_body clob;
     l_member_functions_header clob;
     l_source clob;
+    l_column_list clob;
+    l_column_list_with_self clob;
 
   begin
 
@@ -141,30 +177,28 @@ create or replace package body builder_pattern_generator as
       ,i_table_columns => l_table_columns
     );
 
-    l_source := builder_pattern_templates.parameter_object_header_source(
-      i_table_name => i_table_name
-      ,i_attributes => l_attributes
+    l_column_list := get_column_list(
+      i_table_columns => l_table_columns
     );
 
-    l_source := l_source
-      || chr(13)
-      || chr(13)
-      || builder_pattern_templates.parameter_object_body_source(
-        i_table_name => i_table_name
-        ,i_attributes => l_attributes
-      );
+    l_column_list_with_self := get_column_list_with_self(
+      i_table_columns => l_table_columns
+    );
 
     l_source := l_source
                   || chr(13)
                   || chr(13)
                   || builder_pattern_templates.BUILDER_OBJECT_HEADER_SOURCE(
                     I_TABLE_NAME => i_table_name
+                    ,I_ATTRIBUTES => l_attributes
                     ,I_MEMBER_FUNCTIONS => l_member_functions_header
                   )
                   || chr(13)
                   || chr(13)
                   || builder_pattern_templates.BUILDER_OBJECT_body_SOURCE(
                     I_TABLE_NAME => i_table_name
+                    ,I_COLUMN_LIST => l_column_list
+                    ,i_column_list_with_self => l_column_list_with_self
                     ,I_MEMBER_FUNCTIONS => l_member_functions_body
                   );
 
