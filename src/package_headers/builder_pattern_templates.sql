@@ -29,14 +29,15 @@ end;
 
 
   gco_member_function_header_source clob := q'{
-member function with_#COLUMN_NAME#(self in out #TABLE_NAME#_builder_type, i_#COLUMN_NAME# #DATA_TYPE#) return #TABLE_NAME#_builder_type
+member function with_#COLUMN_NAME#(self in #TABLE_NAME#_builder_type, i_#COLUMN_NAME# #DATA_TYPE#) return #TABLE_NAME#_builder_type
 }';
 
   gco_member_function_body_source clob := q'{
-member function with_#COLUMN_NAME#(self in out #TABLE_NAME#_builder_type, i_#COLUMN_NAME# #DATA_TYPE#) return #TABLE_NAME#_builder_type is
+member function with_#COLUMN_NAME#(self in #TABLE_NAME#_builder_type, i_#COLUMN_NAME# #DATA_TYPE#) return #TABLE_NAME#_builder_type is
+  l_self #TABLE_NAME#_builder_type := self;
 begin
-  self.#COLUMN_NAME# := i_#COLUMN_NAME#;
-  return self;
+  l_self.#COLUMN_NAME# := i_#COLUMN_NAME#;
+  return l_self;
 end with_#COLUMN_NAME#;
 }';
 
