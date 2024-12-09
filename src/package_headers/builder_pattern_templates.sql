@@ -71,3 +71,4 @@ end;
   ) return clob;
 
 end builder_pattern_templates;
+/

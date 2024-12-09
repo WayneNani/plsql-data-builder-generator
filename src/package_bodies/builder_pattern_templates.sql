@@ -81,3 +81,4 @@ create or replace package body builder_pattern_templates as
   end member_function_body_source;
 
 end builder_pattern_templates;
+/

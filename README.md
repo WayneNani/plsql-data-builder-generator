@@ -9,7 +9,7 @@ This project consists of two packages:
 1. `builder_pattern_generator` is the main interface to use when actually generating data generators for arbitrary tables.
 2. `builder_pattern_templates` is the underlying template engine that is called by `builder_pattern_generator` for each requested table.
 
-After these packages have been compiled you can create the generator object for a table by calling:
+After these packages have been compiled (just execute the `install.sql` script) you can create the generator object for a table by calling:
 
 ```sql
 begin
