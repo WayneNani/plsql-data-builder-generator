@@ -145,18 +145,14 @@ create or replace package body builder_pattern_generator as
   end get_column_list_with_self;
 
 
-  function generate_builder_object_sql(
+  function generate_builder_object_header_sql(
     i_table_owner varchar2
     ,i_table_name varchar2
   ) return clob as
 
     l_table_columns t_table_columns_type;
     l_attributes clob;
-    l_member_functions_body clob;
     l_member_functions_header clob;
-    l_source clob;
-    l_column_list clob;
-    l_column_list_with_self clob;
 
   begin
 
@@ -164,49 +160,99 @@ create or replace package body builder_pattern_generator as
       i_table_owner => i_table_owner
       ,i_table_name => i_table_name
     );
-
     l_attributes := get_attributes(
       i_table_columns => l_table_columns
-    );
-    l_member_functions_body := get_member_functions_body(
-      i_table_name => i_table_name
-      ,i_table_columns => l_table_columns
     );
     l_member_functions_header := get_member_functions_header(
       i_table_name => i_table_name
       ,i_table_columns => l_table_columns
     );
 
+    return builder_pattern_templates.builder_object_header_source(
+      i_owner => i_table_owner
+      ,i_table_name => i_table_name
+      ,i_attributes => l_attributes
+      ,i_member_functions => l_member_functions_header
+    );
+
+  end generate_builder_object_header_sql;
+
+
+  function generate_builder_object_body_sql(
+    i_table_owner varchar2
+    ,i_table_name varchar2
+  ) return clob as
+
+    l_table_columns t_table_columns_type;
+    l_column_list clob;
+    l_column_list_with_self clob;
+    l_member_functions_body clob;
+
+  begin
+
+    l_table_columns := get_table_columns(
+      i_table_owner => i_table_owner
+      ,i_table_name => i_table_name
+    );
+    l_member_functions_body := get_member_functions_body(
+      i_table_name => i_table_name
+      ,i_table_columns => l_table_columns
+    );
     l_column_list := get_column_list(
       i_table_columns => l_table_columns
     );
-
     l_column_list_with_self := get_column_list_with_self(
       i_table_columns => l_table_columns
     );
 
-    l_source := l_source
-                  || chr(13)
-                  || chr(13)
-                  || builder_pattern_templates.BUILDER_OBJECT_HEADER_SOURCE(
-                    i_owner => i_table_owner
-                    ,I_TABLE_NAME => i_table_name
-                    ,I_ATTRIBUTES => l_attributes
-                    ,I_MEMBER_FUNCTIONS => l_member_functions_header
-                  )
-                  || chr(13)
-                  || chr(13)
-                  || builder_pattern_templates.BUILDER_OBJECT_body_SOURCE(
-                    i_owner => i_table_owner
-                    ,I_TABLE_NAME => i_table_name
-                    ,I_COLUMN_LIST => l_column_list
-                    ,i_column_list_with_self => l_column_list_with_self
-                    ,I_MEMBER_FUNCTIONS => l_member_functions_body
-                  );
+    return builder_pattern_templates.builder_object_body_source(
+      i_owner => i_table_owner
+      ,i_table_name => i_table_name
+      ,i_column_list => l_column_list
+      ,i_column_list_with_self => l_column_list_with_self
+      ,i_member_functions => l_member_functions_body
+    );
 
-    return l_source;
+  end generate_builder_object_body_sql;
+
+
+  function generate_builder_object_sql(
+    i_table_owner varchar2
+    ,i_table_name varchar2
+  ) return clob as
+  begin
+
+    return generate_builder_object_header_sql(
+      i_table_owner => i_table_owner
+      ,i_table_name => i_table_name
+    )
+    || chr(13)
+    || chr(13)
+    || generate_builder_object_body_sql(
+      i_table_owner => i_table_owner
+      ,i_table_name => i_table_name
+    );
 
   end generate_builder_object_sql;
+
+
+  procedure generate_builder_object(
+    i_table_owner varchar2
+    ,i_table_name varchar2
+  ) as
+  begin
+
+    execute immediate generate_builder_object_header_sql(
+      i_table_owner => i_table_owner
+      ,i_table_name => i_table_name
+    );
+
+    execute immediate generate_builder_object_body_sql(
+      i_table_owner => i_table_owner
+      ,i_table_name => i_table_name
+    );
+
+  end generate_builder_object;
 
 end builder_pattern_generator;
 /

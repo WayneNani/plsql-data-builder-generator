@@ -32,5 +32,11 @@ create or replace package builder_pattern_generator as
     ,i_table_name varchar2
   ) return clob;
 
+
+  procedure generate_builder_object(
+    i_table_owner varchar2
+    ,i_table_name varchar2
+  );
+
 end builder_pattern_generator;
 /

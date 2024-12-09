@@ -21,8 +21,9 @@ end;
 ```
 
 This will generate the source for the corresponding data generator object type. You can change the name but by default it will be your_table_name_builder_type.
+If you want to keep the default name anyways, you can also compile the object right away with `builder_pattern_generator.generate_builder_object`.
 
-After you have executed the generated source code you can use the data generator by using this pattern:
+After you have executed the generated source code (or used `builder_pattern_generator.generate_builder_object`) you can use the data generator by using this pattern:
 
 ```sql
 begin
