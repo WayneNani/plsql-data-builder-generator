@@ -16,6 +16,7 @@ create or replace package body builder_pattern_generator as
       ,case
          when (data_type not like '%VARCHAR%' and data_length = 4000)
               or data_type like '%TIMESTAMP%'
+              or data_type = 'DATE'
            then null
          else
            '(' ||
