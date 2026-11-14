@@ -1,41 +1,33 @@
-create or replace package builder_pattern_generator as
+create or replace package builder_pattern_generator authid current_user as
 
-  subtype column_name_type is all_tab_cols.column_name%type;
-  subtype data_type_type is all_tab_cols.data_type%type;
-  subtype data_scale_type is varchar2(20);
-  subtype column_id_type is all_tab_cols.column_id%type;
+  /*
+    Generates a test data builder package for a table.
 
-  type r_table_column_type is record(
-    column_id column_id_type
-    ,column_name column_name_type
-    ,data_type data_type_type
-    ,data_type_scale data_scale_type
-  );
+    The generated package (default name: <table_name>_builder) contains
 
-  type t_table_columns_type is table of r_table_column_type;
+      procedure build(...)                  inserts one row
+      function  build_row(...) return %rowtype
+                                            inserts one row and returns it
 
+    with one parameter per insertable column. Parameters are anchored with
+    %type (no data type mapping, robust against type changes) and default to
+    the column default of the table, so table defaults keep working.
 
+    Owner, table and package names are case insensitive unless passed in
+    double quotes (e.g. '"MixedCase"').
+  */
 
-  function get_attributes(
-    i_table_columns t_table_columns_type
+  function generate_builder_package_sql(
+    i_table_owner varchar2
+    ,i_table_name varchar2
+    ,i_package_name varchar2 default null
   ) return clob;
 
 
-  function get_table_columns(
+  procedure generate_builder_package(
     i_table_owner varchar2
     ,i_table_name varchar2
-  ) return t_table_columns_type;
-
-
-  function generate_builder_object_sql(
-    i_table_owner varchar2
-    ,i_table_name varchar2
-  ) return clob;
-
-
-  procedure generate_builder_object(
-    i_table_owner varchar2
-    ,i_table_name varchar2
+    ,i_package_name varchar2 default null
   );
 
 end builder_pattern_generator;
