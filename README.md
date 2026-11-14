@@ -181,13 +181,14 @@ end;
 
 ### Details and limitations
 
-- Every parameter is anchored with `%type`, so there is no data type mapping. Changing a column's length or precision does not require regenerating the builder; the package is invalidated and recompiled automatically. Adding or dropping columns, constraints or defaults does require regenerating it.
+- Every parameter is anchored with `%type`, so there is no data type mapping. Changing a column's length or precision does not require regenerating the builder; the package is invalidated and recompiled automatically. Exception: generated dummy values are sized at generation time, so regenerate after shrinking a mandatory column. Adding or dropping columns, constraints or defaults does require regenerating it.
 - Columns that cannot be inserted are left out: virtual columns, identity columns `generated always` and system generated hidden columns. Invisible columns are included as parameters; in the record API they get their default.
 - Parent rows are only created for mandatory foreign keys with a single column that reference another table. Composite and self referencing foreign keys get no automatic default; use the defaults package for them. Parent builders are expected to have the default name `<parent_table>_builder`. `generate_builder_package` raises an error if a parent builder does not exist yet; `generate_builder_packages` generates parents first.
-- Primary key columns of tables with an enabled `before insert for each row` trigger get no dummy value, as they are usually filled by the trigger from a sequence.
+- Primary key columns that an enabled `before insert for each row` trigger assigns (`:new.id := ...`) get no dummy value, as they are usually filled by the trigger from a sequence.
 - Dummy values start at 1 in every session. Unique columns may collide with data that already exists in the table, and check constraints are not considered; use the defaults package in these cases.
 - Table defaults are copied at generation time and evaluated in PL/SQL. This works for typical defaults, but an expression that is only valid in SQL makes the generated package fail to compile.
-- Identifiers that are not plain upper case (e.g. `"MixedCase"`) are quoted, so the parameter has to be quoted in the call as well.
+- Identifiers that are not plain upper case (e.g. `"MixedCase"`) or that are reserved words in SQL or PL/SQL (e.g. `"DATE"`, `"END"`, `"EXCEPTION"`) are quoted, so the parameter has to be quoted in the call as well: `build("END" => 5)`.
+- Tables with `LONG` or `LONG RAW` columns are not supported: `build_row` returns the row with `returning ... into`, which does not support these types.
 - Requires Oracle 12.2 or newer. `generate_builder_package` and `generate_builder_packages` use invoker rights, so `CREATE PROCEDURE` may also be granted through a role.
 
 ## Tests

@@ -3,7 +3,10 @@ create or replace package builder_pattern_templates as
   /*
     Templates for the generated builder package.
 
-    Name placeholders (replaced first):
+    Placeholders are replaced in a single pass: generated values are never
+    searched for placeholders, so they may contain "#".
+
+    Name placeholders:
       #OWNER#              owner of the table
       #TABLE_NAME#         table name
       #PACKAGE_NAME#       name of the generated package
@@ -112,7 +115,9 @@ end #PACKAGE_NAME#;}';
     l_number constant varchar2(40) := to_char(next_value);
   begin
     if length(l_number) + 1 >= i_max_length then
-      return substr(lpad(l_number, i_max_length, '0'), -i_max_length);
+      -- the last digits, zero padded: lpad alone would keep the first ones,
+      -- and substr(x, -n) is null if x is shorter than n
+      return lpad(substr(l_number, greatest(length(l_number) - i_max_length + 1, 1)), i_max_length, '0');
     end if;
 
     return substr(i_prefix, 1, i_max_length - length(l_number) - 1) || '_' || l_number;
@@ -188,7 +193,8 @@ end #PACKAGE_NAME#;}';
 end #PACKAGE_NAME#;}';
 
 
-  -- Replaces the placeholders in the given order.
+  -- Replaces #NAME# by the value of the placeholder NAME, in a single pass.
+  -- Unknown #...# sequences are kept as they are.
   function render(
     i_template clob
     ,i_placeholders t_placeholders_type

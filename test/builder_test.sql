@@ -23,15 +23,18 @@ declare
     when others then null;
   end;
 begin
-  for r in (select object_name from user_objects where object_type = 'PACKAGE' and (object_name like 'BT\_%' escape '\' or object_name like 'BUILDER\_TEST\_%' escape '\')) loop
-    drop_if_exists('drop package ' || r.object_name);
+  for r in (
+    select object_type, object_name
+    from user_objects
+    where
+      object_type in ('PACKAGE', 'TABLE', 'SEQUENCE')
+      and (object_name like 'BT\_%' escape '\' or object_name like 'BUILDER\_TEST\_%' escape '\')
+  ) loop
+    drop_if_exists(
+      'drop ' || r.object_type || ' ' || r.object_name
+      || case r.object_type when 'TABLE' then ' cascade constraints purge' end
+    );
   end loop;
-  drop_if_exists('drop table bt_order_item purge');
-  drop_if_exists('drop table bt_order purge');
-  drop_if_exists('drop table bt_customer purge');
-  drop_if_exists('drop table builder_test_table purge');
-  drop_if_exists('drop table builder_test_by_default purge');
-  drop_if_exists('drop sequence builder_test_seq');
 end;
 /
 
@@ -102,6 +105,86 @@ begin
 end;
 /
 
+-- Reserved words as column names; a default that looks like a placeholder
+create table bt_keywords (
+  "DATE"          date not null
+  ,"LEVEL"        number
+  ,sql            varchar2(10) not null
+  ,columns        number
+  ,end            number
+  ,exception      varchar2(10)
+  ,type           varchar2(10)
+  ,tag            varchar2(20) default '#PARAMETERS#'
+);
+
+-- Short unique text column: dummy values must stay unique
+create table bt_short (
+  code            varchar2(3) not null unique
+);
+
+-- Primary key assigned by the application, trigger sets another column
+create table bt_audited (
+  id              number primary key
+  ,created_by     varchar2(128)
+);
+
+create or replace trigger bt_audited_bi
+before insert on bt_audited
+for each row
+begin
+  :new.created_by := user;
+end;
+/
+
+-- Mandatory foreign key covered by a custom default: no parent builder needed
+create table bt_ref_parent (
+  id              number primary key
+);
+
+create table bt_ref_child (
+  id              number generated always as identity primary key
+  ,parent_id      number not null references bt_ref_parent
+);
+
+create or replace package bt_ref_child_defaults as
+  function parent_id return bt_ref_child.parent_id%type;
+end;
+/
+
+create or replace package body bt_ref_child_defaults as
+  function parent_id return bt_ref_child.parent_id%type is
+  begin
+    return 1;
+  end;
+end;
+/
+
+-- Cycle of mandatory foreign keys, broken by a custom default
+create table bt_cycle_a (
+  id              number primary key
+  ,b_id           number not null
+);
+
+create table bt_cycle_b (
+  id              number primary key
+  ,a_id           number not null references bt_cycle_a
+);
+
+alter table bt_cycle_a add foreign key (b_id) references bt_cycle_b;
+
+create or replace package bt_cycle_b_defaults as
+  function a_id return bt_cycle_b.a_id%type;
+end;
+/
+
+create or replace package body bt_cycle_b_defaults as
+  function a_id return bt_cycle_b.a_id%type is
+  begin
+    return 1;
+  end;
+end;
+/
+
 -- Hand written defaults, picked up at generation time
 create or replace package bt_order_defaults as
   function amount return bt_order.amount%type;
@@ -141,6 +224,10 @@ begin
   end;
   assert(l_error_code = -20002 and l_error_message like '%BT_CUSTOMER_BUILDER%', 'missing parent builder is reported');
 
+  -- ... unless the foreign key is covered by a custom default
+  builder_pattern_generator.generate_builder_package(user, 'bt_ref_child');
+  assert(true, 'custom default on a foreign key: parent builder not required');
+
   builder_pattern_generator.generate_builder_packages(user, 'BT_%');
   builder_pattern_generator.generate_builder_package(user, 'builder_test_table');
   builder_pattern_generator.generate_builder_package(user, 'builder_test_by_default');
@@ -176,7 +263,7 @@ declare
 begin
 
   select count(*) into l_count from user_objects where object_name like 'BT\_%\_BUILDER' escape '\' and status = 'VALID';
-  assert(l_count = 6, 'generate_builder_packages: specs and bodies of 3 builders valid');
+  assert(l_count = 20, 'generate_builder_packages: specs and bodies of 10 builders valid (incl. cycle)');
 
   ---------------------------------------------------------------------------
   -- Column kinds
@@ -270,21 +357,55 @@ begin
   bt_order_builder.build(l_order);
   assert(row_count('bt_customer') = 3 and row_count('bt_order') = 4, 'build(record) with parent set: no additional customer');
 
+  ---------------------------------------------------------------------------
+  -- Edge cases
+  ---------------------------------------------------------------------------
+
+  bt_keywords_builder.build("END" => 5, "EXCEPTION" => 'x', type => 't');
+  select count(*) into l_count from bt_keywords where sql like 'sql_%' and "DATE" is not null and end = 5 and exception = 'x' and type = 't';
+  assert(l_count = 1, 'reserved words as column names');
+
+  select count(*) into l_count from bt_keywords where tag = '#PARAMETERS#';
+  assert(l_count = 1, 'default looking like a placeholder is kept');
+
+  -- counters 1000+ collided with 100+ before (first digits were kept)
+  for i in 1 .. 1005 loop
+    bt_short_builder.build;
+  end loop;
+  assert(row_count('bt_short') = 1005, 'dummy values in a varchar2(3) stay unique beyond 1000 rows');
+
+  assert(bt_audited_builder.build_row().id is not null, 'primary key not assigned by the trigger gets a dummy value');
+
+  insert into bt_ref_parent(id) values (1);
+  assert(bt_ref_child_builder.build_row().parent_id = 1 and row_count('bt_ref_parent') = 1, 'custom default for a foreign key: no parent row created');
+
   rollback;
   dbms_output.put_line('All tests passed.');
 
 end;
 /
 
-drop package bt_order_item_builder;
-drop package bt_order_builder;
-drop package bt_customer_builder;
-drop package bt_order_defaults;
-drop package builder_test_table_builder;
-drop package builder_test_by_default_builder;
-drop table bt_order_item purge;
-drop table bt_order purge;
-drop table bt_customer purge;
-drop table builder_test_table purge;
-drop table builder_test_by_default purge;
-drop sequence builder_test_seq;
+-- clean up
+declare
+  procedure drop_if_exists(i_statement varchar2) is
+  begin
+    execute immediate i_statement;
+  exception
+    when others then null;
+  end;
+begin
+  for r in (
+    select object_type, object_name
+    from user_objects
+    where
+      object_type in ('PACKAGE', 'TABLE', 'SEQUENCE')
+      and (object_name like 'BT\_%' escape '\' or object_name like 'BUILDER\_TEST\_%' escape '\')
+  ) loop
+    drop_if_exists(
+      'drop ' || r.object_type || ' ' || r.object_name
+      || case r.object_type when 'TABLE' then ' cascade constraints purge' end
+    );
+  end loop;
+end;
+/
+
