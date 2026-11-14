@@ -4,9 +4,10 @@
   Run in a scratch schema after install.sql, e.g.
     sql app/app@localhost/freepdb1 @test/builder_test.sql
 
-  Creates a table with the column kinds that are tricky for a generator,
-  generates the builder package, inserts rows through it and checks the
-  results. Rolls back at the end and drops the test objects.
+  Creates tables with the column kinds that are tricky for a generator and a
+  small customer -> order -> order item hierarchy, generates the builder
+  packages, inserts rows through them and checks the results. Rolls back at
+  the end and drops the test objects.
 */
 
 set serveroutput on
@@ -22,8 +23,12 @@ declare
     when others then null;
   end;
 begin
-  drop_if_exists('drop package builder_test_table_builder');
-  drop_if_exists('drop package builder_test_by_default_builder');
+  for r in (select object_name from user_objects where object_type = 'PACKAGE' and (object_name like 'BT\_%' escape '\' or object_name like 'BUILDER\_TEST\_%' escape '\')) loop
+    drop_if_exists('drop package ' || r.object_name);
+  end loop;
+  drop_if_exists('drop table bt_order_item purge');
+  drop_if_exists('drop table bt_order purge');
+  drop_if_exists('drop table bt_customer purge');
   drop_if_exists('drop table builder_test_table purge');
   drop_if_exists('drop table builder_test_by_default purge');
   drop_if_exists('drop sequence builder_test_seq');
@@ -31,6 +36,8 @@ end;
 /
 
 create sequence builder_test_seq;
+
+-- Column kinds
 
 create table builder_test_table (
   id              number generated always as identity primary key
@@ -54,23 +61,65 @@ create table builder_test_by_default (
   ,name           varchar2(10)
 );
 
+-- Hierarchy: mandatory foreign keys, mandatory columns without defaults
+
+create table bt_customer (
+  id              number generated always as identity primary key
+  ,name           varchar2(50) not null
+  ,code           varchar2(3) not null
+  ,score          number(3) not null
+  ,birthday       date not null
+  ,last_login     timestamp with time zone not null
+  ,profile        json not null
+  ,active         boolean not null
+);
+
+create table bt_order (
+  id              number generated always as identity primary key
+  ,customer_id    number not null references bt_customer
+  ,ordered_at     timestamp not null
+  ,amount         number(10, 2) not null
+  ,note           varchar2(100)
+);
+
+-- classic primary key filled by a trigger
+create table bt_order_item (
+  id              number primary key
+  ,order_id       number not null references bt_order
+  ,product        varchar2(20) not null
+  ,quantity       number(5) not null
+  ,guid           raw(16) not null
+  ,payload        blob not null
+);
+
+create or replace trigger bt_order_item_bi
+before insert on bt_order_item
+for each row
 begin
-  builder_pattern_generator.generate_builder_package(
-    i_table_owner => user
-    ,i_table_name => 'builder_test_table'
-  );
-  builder_pattern_generator.generate_builder_package(
-    i_table_owner => user
-    ,i_table_name => 'builder_test_by_default'
-  );
+  if :new.id is null then
+    :new.id := builder_test_seq.nextval;
+  end if;
+end;
+/
+
+-- Hand written defaults, picked up at generation time
+create or replace package bt_order_defaults as
+  function amount return bt_order.amount%type;
+end;
+/
+
+create or replace package body bt_order_defaults as
+  function amount return bt_order.amount%type is
+  begin
+    return 99.5;
+  end;
 end;
 /
 
 declare
 
-  l_row builder_test_table%rowtype;
-  l_count pls_integer;
-  l_secret builder_test_table.secret%type;
+  l_error_code number;
+  l_error_message varchar2(4000);
 
   procedure assert(i_condition boolean, i_message varchar2) is
   begin
@@ -82,13 +131,61 @@ declare
 
 begin
 
-  -- 1. Minimal call: only the mandatory column without default
-  builder_test_table_builder.build(code => 'A');
+  -- A child builder cannot be generated before its parent builders
+  begin
+    builder_pattern_generator.generate_builder_package(user, 'bt_order');
+  exception
+    when others then
+      l_error_code := sqlcode;
+      l_error_message := sqlerrm;
+  end;
+  assert(l_error_code = -20002 and l_error_message like '%BT_CUSTOMER_BUILDER%', 'missing parent builder is reported');
 
-  select count(*) into l_count from builder_test_table where code = 'A' and status = 'NEW' and created_at is not null;
-  assert(l_count = 1, 'build with defaults: table defaults are applied');
+  builder_pattern_generator.generate_builder_packages(user, 'BT_%');
+  builder_pattern_generator.generate_builder_package(user, 'builder_test_table');
+  builder_pattern_generator.generate_builder_package(user, 'builder_test_by_default');
 
-  -- 2. build_row returns generated values and keeps types intact
+end;
+/
+
+declare
+
+  l_count pls_integer;
+  l_row builder_test_table%rowtype;
+  l_secret builder_test_table.secret%type;
+  l_customer bt_customer%rowtype;
+  l_customer2 bt_customer%rowtype;
+  l_order bt_order%rowtype;
+  l_item bt_order_item%rowtype;
+
+  procedure assert(i_condition boolean, i_message varchar2) is
+  begin
+    if not nvl(i_condition, false) then
+      raise_application_error(-20000, 'FAILED: ' || i_message);
+    end if;
+    dbms_output.put_line('ok   ' || i_message);
+  end assert;
+
+  function row_count(i_table varchar2) return pls_integer is
+    l_count pls_integer;
+  begin
+    execute immediate 'select count(*) from ' || i_table into l_count;
+    return l_count;
+  end row_count;
+
+begin
+
+  select count(*) into l_count from user_objects where object_name like 'BT\_%\_BUILDER' escape '\' and status = 'VALID';
+  assert(l_count = 6, 'generate_builder_packages: specs and bodies of 3 builders valid');
+
+  ---------------------------------------------------------------------------
+  -- Column kinds
+  ---------------------------------------------------------------------------
+
+  builder_test_table_builder.build;
+  select count(*) into l_count from builder_test_table where code like 'code_%' and status = 'NEW' and created_at is not null;
+  assert(l_count = 1, 'build without arguments: dummy value and table defaults');
+
   l_row := builder_test_table_builder.build_row(
     code => 'B'
     ,amount => 1.5
@@ -112,32 +209,66 @@ begin
   assert(l_row."MixedCase" = 'mixed', 'quoted mixed case column');
   assert(dbms_lob.getlength(l_row.notes) = 5000, 'clob > 4000 characters');
 
-  -- 3. Invisible column gets its default and can be set explicitly
   select secret into l_secret from builder_test_table where id = l_row.id;
   assert(l_secret = 'hidden', 'invisible column default');
 
-  l_row := builder_test_table_builder.build_row(code => 'C', secret => 'set');
+  l_row := builder_test_table_builder.build_row(secret => 'set');
   select secret into l_secret from builder_test_table where id = l_row.id;
   assert(l_secret = 'set', 'invisible column can be set');
 
-  -- 4. Defaults can be overridden explicitly
   l_row := builder_test_table_builder.build_row(
-    code => 'D'
-    ,status => 'DONE'
+    status => 'DONE'
     ,created_at => date '2024-12-03'
     ,ext_id => 4711
   );
   assert(l_row.status = 'DONE' and l_row.created_at = date '2024-12-03' and l_row.ext_id = 4711, 'defaults can be overridden');
 
-  -- 5. Identity "generated by default": generated unless passed explicitly
   assert(builder_test_by_default_builder.build_row(name => 'x').id is not null, 'identity (by default) is generated');
   assert(builder_test_by_default_builder.build_row(id => 4711, name => 'y').id = 4711, 'identity (by default) can be set');
 
-  -- 6. Generated source is a runnable script
   assert(
     builder_pattern_generator.generate_builder_package_sql(user, 'builder_test_table', 'other_builder') like '%create or replace package body%other_builder%'
     ,'generate_builder_package_sql with custom package name'
   );
+
+  ---------------------------------------------------------------------------
+  -- Complex setups with one call
+  ---------------------------------------------------------------------------
+
+  l_item := bt_order_item_builder.build_row;
+  assert(row_count('bt_customer') = 1 and row_count('bt_order') = 1 and row_count('bt_order_item') = 1, 'one call without arguments creates customer, order and item');
+  assert(l_item.id = builder_test_seq.currval, 'primary key filled by trigger is not overwritten by a dummy value');
+  assert(l_item.guid is not null and l_item.product like 'product_%' and l_item.quantity > 0, 'dummy values for raw, varchar2, number(5)');
+
+  select * into l_order from bt_order where id = l_item.order_id;
+  assert(l_order.amount = 99.5, 'custom default from bt_order_defaults');
+
+  select * into l_customer from bt_customer where id = l_order.customer_id;
+  assert(l_customer.name like 'name_%' and length(l_customer.code) = 3 and l_customer.score between 0 and 999, 'dummy values respect column length and precision');
+  assert(l_customer.profile is not null and l_customer.active is not null and l_customer.birthday is not null and l_customer.last_login is not null, 'dummy values for json, boolean, date, timestamp with time zone');
+
+  l_customer2 := bt_customer_builder.build_row;
+  assert(l_customer2.name <> l_customer.name and l_customer2.code <> l_customer.code, 'dummy values are unique per call');
+
+  bt_order_builder.build(customer_id => l_customer.id, amount => 5);
+  assert(row_count('bt_customer') = 2 and row_count('bt_order') = 2, 'explicit parent: no additional customer is created');
+
+  ---------------------------------------------------------------------------
+  -- Record based presets
+  ---------------------------------------------------------------------------
+
+  l_order := bt_order_builder.new_row;
+  assert(l_order.customer_id is null and l_order.amount = 99.5 and l_order.ordered_at is not null, 'new_row applies defaults, but creates no parent row');
+  assert(row_count('bt_customer') = 2, 'new_row has no side effects on parent tables');
+
+  l_order.note := 'preset';
+  l_order := bt_order_builder.build_row(l_order);
+  assert(l_order.id is not null and l_order.note = 'preset' and row_count('bt_customer') = 3, 'build_row(record) creates the missing parent');
+
+  l_order := bt_order_builder.new_row;
+  l_order.customer_id := l_customer.id;
+  bt_order_builder.build(l_order);
+  assert(row_count('bt_customer') = 3 and row_count('bt_order') = 4, 'build(record) with parent set: no additional customer');
 
   rollback;
   dbms_output.put_line('All tests passed.');
@@ -145,8 +276,15 @@ begin
 end;
 /
 
+drop package bt_order_item_builder;
+drop package bt_order_builder;
+drop package bt_customer_builder;
+drop package bt_order_defaults;
 drop package builder_test_table_builder;
 drop package builder_test_by_default_builder;
+drop table bt_order_item purge;
+drop table bt_order purge;
+drop table bt_customer purge;
 drop table builder_test_table purge;
 drop table builder_test_by_default purge;
 drop sequence builder_test_seq;
